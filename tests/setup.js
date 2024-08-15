@@ -8,6 +8,23 @@ await execute(`create table if not exists person (
    age INTEGER
 );`);
 
+sessions({
+  store: "table",
+  table: "sessions",
+});
+
+authentication({
+  sessions: {
+    store: "table",
+    table: "sessions",
+  },
+  database_table: {
+    table: "users",
+    user_field: "name",
+    password_field: "password",
+  },
+});
+
 await createCache(async () => {
   console.log("creating cache");
   const name_rows = await query("select name from person order by id");
