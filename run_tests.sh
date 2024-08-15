@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-rm sqlite.db*
+rm -rf sqlite.db*
 
 cargo run tests/ &
 RSPID=$!
