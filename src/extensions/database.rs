@@ -1,18 +1,13 @@
-use crate::routing::RouteRequest;
 use crate::sqltojson::row_to_json;
 use deno_core::op2;
-use deno_core::serde_v8::from_v8;
-use deno_core::{serde_v8::to_v8, OpState};
+use deno_core::OpState;
 use serde_json::value::Number;
 use serde_json::Value;
 use sqlx::Pool;
 use sqlx::{migrate::MigrateDatabase, Any, AnyPool, Sqlite};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::env;
 use std::rc::Rc;
-use std::sync::RwLock;
-use tokio::sync::mpsc;
 
 //async fn op_connect_db(state: Rc<RefCell<OpState>>, #[serde] conn_obj: serde_json::Value) -> () {
 

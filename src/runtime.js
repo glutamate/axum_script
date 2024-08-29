@@ -17,16 +17,5 @@
   };
 
   globalThis.route = Deno.core.ops.op_route;
-  globalThis.query = (sql, pars = []) => Deno.core.ops.op_query(sql, pars);
-  globalThis.execute = (sql, pars = []) => Deno.core.ops.op_execute(sql, pars);
   globalThis.sleep = Deno.core.ops.op_sleep;
-  globalThis.createCache = Deno.core.ops.op_create_cache;
-  globalThis.flushCache = Deno.core.ops.op_flush_cache;
-  globalThis.connectToDatabase = Deno.core.ops.op_connect_db;
-  globalThis.getCache = (subset) =>
-    typeof subset === "function"
-      ? Deno.core.ops.op_with_cache(subset)
-      : subset
-      ? Deno.core.ops.op_get_cache_subset_value(subset)
-      : Deno.core.ops.op_get_cache_value();
 })(globalThis);
