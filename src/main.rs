@@ -17,8 +17,6 @@ use extensions::database::database_extension;
 use extensions::datacache::{datacache_extension, set_data_cache};
 
 use serde_json::{json, Value};
-use sqlx::Pool;
-use sqlx::{migrate::MigrateDatabase, Any, AnyPool, Sqlite};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
@@ -100,14 +98,12 @@ impl JsRunner {
             ..Default::default()
         });
         // following https://github.com/DataDog/datadog-static-analyzer/blob/cde26f42f1cdbbeb09650403318234f277138bbd/crates/static-analysis-kernel/src/analysis/ddsa_lib/runtime.rs#L54
-        let pool: Rc<RefCell<Option<Pool<Any>>>> = Rc::new(RefCell::new(None));
 
         let route_map: HashMap<String, v8::Global<v8::Function>> = HashMap::new();
 
         let hmref = Rc::new(RefCell::new(route_map));
         let txref = Rc::new(RefCell::new(tx_req));
 
-        js_runtime.op_state().borrow_mut().put(Rc::clone(&pool));
         js_runtime.op_state().borrow_mut().put(Rc::clone(&hmref));
         js_runtime.op_state().borrow_mut().put(Rc::clone(&txref));
 

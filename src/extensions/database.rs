@@ -100,7 +100,11 @@ async fn op_execute(
 deno_core::extension!(
     database_extension,
     ops = [op_query, op_execute, op_connect_db],
-    js = ["src/extensions/database.js"]
+    js = ["src/extensions/database.js"],
+    state = |state: &mut OpState| {
+        let pool: Rc<RefCell<Option<Pool<Any>>>> = Rc::new(RefCell::new(None));
+        state.put(Rc::clone(&pool));
+    }
 );
 
 pub async fn connect_database(db_url: &str) -> Pool<Any> {
