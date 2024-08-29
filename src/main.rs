@@ -20,12 +20,14 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
+use std::future::Future;
 use std::rc::Rc;
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task;
 use tokio::time::{sleep, Duration};
+use v8::Handle;
 mod extensions;
 mod routing;
 mod sqltojson;
@@ -43,9 +45,26 @@ async fn op_sleep(ms: u32) {
     sleep(Duration::from_millis(ms.into())).await;
 }
 
+#[op2(async)]
+fn op_on_init(
+    scope: &mut v8::HandleScope,
+    #[global] gcallback: v8::Global<v8::Function>,
+) -> impl Future<Output = ()> {
+    let callback = gcallback.open(scope);
+    let v8_val = to_v8(scope, ()).unwrap();
+    let fres = callback.call(scope, v8_val, &[v8_val]).unwrap();
+
+    if fres.is_promise() {
+        // TODO return the promise as a future, or resolve it
+        return std::future::ready(());
+    } else {
+        return std::future::ready(());
+    }
+}
+
 deno_core::extension!(
     my_extension,
-    ops = [op_route, op_sleep,],
+    ops = [op_route, op_sleep, op_on_init],
     js = ["src/runtime.js"]
 );
 
