@@ -1,3 +1,4 @@
+use crate::routing::{RouteRequest, RouteState};
 use axum::body::Body;
 use axum::extract::{MatchedPath, RawPathParams};
 use axum::response::{IntoResponse, Response};
@@ -12,6 +13,7 @@ use deno_core::op2;
 use deno_core::serde_v8::from_v8;
 use deno_core::JsRuntime;
 use deno_core::{serde_v8::to_v8, OpState};
+use extensions::datacache::{datacache_extension, set_data_cache};
 use serde_json::value::Number;
 use serde_json::{json, Value};
 use sqltojson::row_to_json;
@@ -21,16 +23,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
 use std::rc::Rc;
-use std::sync::RwLock;
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task;
 use tokio::time::{sleep, Duration};
-
+mod extensions;
+mod routing;
 mod sqltojson;
-
-static CACHE_VALUE_LOCK: RwLock<Value> = RwLock::new(Value::Null);
 
 #[op2()]
 fn op_route(state: &mut OpState, #[string] path: &str, #[global] router: v8::Global<v8::Function>) {
@@ -128,99 +128,6 @@ async fn op_execute(
     }
 }
 
-#[op2()]
-#[serde]
-fn op_get_cache_value() -> serde_json::Value {
-    let r1 = CACHE_VALUE_LOCK.read().unwrap();
-    return (*r1).clone(); //TODO this is bad
-}
-
-#[op2()]
-#[serde]
-fn op_get_cache_subset_value(#[serde] subset: serde_json::Value) -> serde_json::Value {
-    //fn op_get_cache_subset_value(subset: serde_json::Value) -> Value {
-    let r1 = CACHE_VALUE_LOCK.read().unwrap();
-    match (subset, &(*r1)) {
-        (Value::String(key), Value::Object(o)) => o.get(&key).unwrap_or(&Value::Null).clone(),
-        (Value::Array(keys), Value::Object(o)) => {
-            let mut mp = serde_json::Map::new();
-            keys.into_iter().for_each(|vkey| match vkey {
-                Value::String(key) => {
-                    mp.insert(key.clone(), o.get(&key).unwrap_or(&Value::Null).clone());
-                    return ();
-                }
-                _ => {
-                    panic!("invalid key");
-                }
-            });
-            Value::Object(mp)
-        }
-        _ => panic!("unknown subset"),
-    }
-}
-
-#[op2()]
-fn op_create_cache(state: &mut OpState, #[global] create_cache_fn: v8::Global<v8::Function>) -> () {
-    let hmref = state.borrow::<Rc<RefCell<HashMap<String, v8::Global<v8::Function>>>>>();
-    let mut routes = hmref.borrow_mut();
-    routes.insert(String::from("__create_cache"), create_cache_fn);
-    return ();
-    //    return rows.len().try_into().unwrap();
-}
-
-#[op2()]
-#[serde]
-fn op_with_cache<'s>(
-    scope: &mut v8::HandleScope<'s>,
-    #[global] gxformer: v8::Global<v8::Function>,
-) -> serde_json::Value {
-    let r1 = CACHE_VALUE_LOCK.read().unwrap();
-    let xformer = gxformer.open(scope);
-    let v8_val = to_v8(scope, &(*r1)).unwrap();
-    let fres = xformer.call(scope, v8_val, &[v8_val]);
-    match fres {
-        Some(v) => {
-            return from_v8(scope, v).unwrap();
-        }
-        None => {
-            panic!("withcache function error");
-        }
-    }
-    //    return rows.len().try_into().unwrap();
-}
-
-#[op2(async)]
-async fn op_flush_cache(state: Rc<RefCell<OpState>>) -> () {
-    let state = state.borrow();
-    let txref = state.borrow::<Rc<RefCell<Option<mpsc::Sender<RouteRequest>>>>>();
-    let otxreq = txref.borrow_mut();
-    //let (tx, rx) = oneshot::channel();
-    if let Some(txreq) = otxreq.as_ref() {
-        let sendres = txreq
-            .send(RouteRequest {
-                route_name: String::from("__create_cache"),
-                response_channel: None,
-                route_args: serde_json::Map::new(),
-                //request: req,
-            })
-            .await;
-
-        match sendres {
-            Ok(_) => (),
-            Err(e) => {
-                panic!("Send Error: {}", e);
-            }
-        }
-        //TODO await response before returning
-        /*match rx.await {
-            Ok(_v) => return (),
-            Err(_e) => {
-                panic!("error in flush cache")
-            }
-        };*/
-    }
-}
-
 #[op2(async)]
 async fn op_sleep(ms: u32) {
     sleep(Duration::from_millis(ms.into())).await;
@@ -228,18 +135,7 @@ async fn op_sleep(ms: u32) {
 
 deno_core::extension!(
     my_extension,
-    ops = [
-        op_route,
-        op_query,
-        op_execute,
-        op_sleep,
-        op_create_cache,
-        op_flush_cache,
-        op_get_cache_value,
-        op_get_cache_subset_value,
-        op_with_cache,
-        op_connect_db
-    ],
+    ops = [op_route, op_query, op_execute, op_sleep, op_connect_db],
     js = ["src/runtime.js"]
 );
 
@@ -302,7 +198,10 @@ impl JsRunner {
             deno_core::resolve_path(&setup_path, env::current_dir().unwrap().as_path()).unwrap();
         let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
             module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-            extensions: vec![my_extension::init_ops_and_esm()],
+            extensions: vec![
+                my_extension::init_ops_and_esm(),
+                datacache_extension::init_ops_and_esm(),
+            ],
             ..Default::default()
         });
         // following https://github.com/DataDog/datadog-static-analyzer/blob/cde26f42f1cdbbeb09650403318234f277138bbd/crates/static-analysis-kernel/src/analysis/ddsa_lib/runtime.rs#L54
@@ -408,8 +307,7 @@ impl JsRunner {
             let serde_val: Value = from_v8(scope, v8_val).unwrap();
             //save to global
 
-            let mut cache = CACHE_VALUE_LOCK.write().unwrap();
-            *cache = serde_val;
+            set_data_cache(serde_val);
 
             return Html("").into_response();
         } else {
@@ -473,17 +371,6 @@ fn annotate_response(
     return resp1;
 }
 
-struct RouteRequest {
-    route_name: String,
-    response_channel: Option<oneshot::Sender<Response<Body>>>,
-    route_args: serde_json::Map<String, Value>,
-    //request: Request,
-}
-
-#[derive(Clone)]
-struct RouteState {
-    tx_req: mpsc::Sender<RouteRequest>,
-}
 fn main() {
     let paths = tokio::runtime::Builder::new_current_thread()
         .enable_all()
