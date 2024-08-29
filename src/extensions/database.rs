@@ -18,7 +18,6 @@ async fn op_connect_db(state: Rc<RefCell<OpState>>, #[string] conn_obj: String) 
     let opoolref = state.borrow::<Rc<RefCell<Option<Pool<Any>>>>>();
 
     let pool = connect_database(&conn_obj).await;
-    dbg!("connected to db from inside op");
     opoolref.replace(Some(pool));
     return ();
 }

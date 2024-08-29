@@ -276,34 +276,37 @@ fn main() {
         });
 
     let paths = paths.iter();
+    //__create_cache is built in
+    if paths.len() > 1 {
+        println!("serving...");
+        let axum = async {
+            let tx_req = JsRunner::spawn_thread();
 
-    let axum = async {
-        let tx_req = JsRunner::spawn_thread();
+            print!("Starting server");
+            let rstate = RouteState { tx_req };
+            let app: Router = paths
+                .fold(Router::new(), |router, path| {
+                    if path.starts_with("/") {
+                        router.route(path, get(req_handler))
+                    } else {
+                        router
+                    }
+                })
+                .with_state(rstate);
 
-        print!("Starting server");
-        let rstate = RouteState { tx_req };
-        let app: Router = paths
-            .fold(Router::new(), |router, path| {
-                if path.starts_with("/") {
-                    router.route(path, get(req_handler))
-                } else {
-                    router
-                }
-            })
-            .with_state(rstate);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
+                .await
+                .unwrap();
+            println!("listening on {}", listener.local_addr().unwrap());
+            axum::serve(listener, app).await.unwrap();
+        };
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
-            .await
-            .unwrap();
-        println!("listening on {}", listener.local_addr().unwrap());
-        axum::serve(listener, app).await.unwrap();
-    };
-
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("Failed building the Runtime")
-        .block_on(axum);
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(axum);
+    }
 }
 
 async fn req_handler(
