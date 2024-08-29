@@ -49,9 +49,9 @@ deno_core::extension!(
     js = ["src/runtime.js"]
 );
 
-fn get_init_dir() -> String {
+fn get_init_file() -> String {
     let args: Vec<String> = env::args().collect();
-    return if args.len() < 2 {
+    let dir = if args.len() < 2 {
         env::current_dir()
             .unwrap()
             .into_os_string()
@@ -60,6 +60,11 @@ fn get_init_dir() -> String {
     } else {
         args[1].clone()
     };
+    if dir.ends_with(".js") {
+        return dir;
+    } else {
+        return [dir, String::from("setup.js")].concat();
+    }
 }
 
 struct JsRunnerInner {
@@ -83,8 +88,7 @@ impl std::ops::Deref for JsRunner {
 
 impl JsRunner {
     async fn new(tx_req: Option<mpsc::Sender<RouteRequest>>) -> JsRunner {
-        let dir = get_init_dir();
-        let setup_path = [dir, String::from("setup.js")].concat();
+        let setup_path = get_init_file();
 
         let init_module =
             deno_core::resolve_path(&setup_path, env::current_dir().unwrap().as_path()).unwrap();
@@ -278,11 +282,9 @@ fn main() {
     let paths = paths.iter();
     //__create_cache is built in
     if paths.len() > 1 {
-        println!("serving...");
         let axum = async {
             let tx_req = JsRunner::spawn_thread();
 
-            print!("Starting server");
             let rstate = RouteState { tx_req };
             let app: Router = paths
                 .fold(Router::new(), |router, path| {
@@ -297,7 +299,7 @@ fn main() {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
                 .await
                 .unwrap();
-            println!("listening on {}", listener.local_addr().unwrap());
+            println!("Server listening on {}", listener.local_addr().unwrap());
             axum::serve(listener, app).await.unwrap();
         };
 
